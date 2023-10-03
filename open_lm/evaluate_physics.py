@@ -570,7 +570,8 @@ def main(args):
 
         return
 
-    loss = torch.nn.CrossEntropyLoss()
+    # loss = torch.nn.CrossEntropyLoss()
+    loss = torch.nn.CrossEntropyLoss(reduction='none')
     if args.z_loss_coefficient != 0.0:
         if is_master(args):
             logging.info("Using CrossEntropyLossWithZLoss.")
@@ -630,14 +631,19 @@ def main(args):
                     out, _ = model(batch_x)
                     loss_value = loss(out.reshape(-1, args.vocab_size), batch_y)
 
+                    loss_value = loss_value[256 + 257:] # dump first two frame losses
+                    frame_losses = loss_value.reshape(-1, 257).mean(dim=-1)
+
+                    surprise = frame_losses.max()
+
                     if sample_type == "possible":
-                        l_possible += loss_value.item()
+                        l_possible += surprise.item()
                         a_possible += 1
                     else:
-                        l_impossible += loss_value.item()
+                        l_impossible += surprise.item()
                         a_impossible += 1
 
-                    l += loss_value.item()
+                    l += loss_value.mean().item()
                     a += 1
 
             # Clean up the temporary directory
@@ -645,16 +651,22 @@ def main(args):
 
         temp_results = {
                 "Average loss": l/a,
-                "Average possible loss": l_possible/a_possible,
-                "Average impossible loss": l_impossible/a_impossible,
+                "Average possible surprise": l_possible/a_possible,
+                "Average impossible surprise": l_impossible/a_impossible,
                 "Diff": l_impossible/a_impossible - l_possible/a_possible,
+                "Normalized Diff": (l_impossible/a_impossible - l_possible/a_possible)/(l/a),
         }
 
         results[tar_path] = temp_results
 
-    # Write the results to a JSON file
-    with open('physics_results.json', 'w') as json_file:
-        json.dump(results, json_file, indent=4)
+    checkpoint_root = Path(args.resume).parent
+    results["checkpoint_path"] = args.resume
+    results["model"] = args.model
+
+    if is_master(args):
+        with open(os.path.join(checkpoint_root, "physics_results.jsonl"), "a+") as f:
+            f.write(json.dumps(results, indent=4))
+            f.write("\n")
 
 
 if __name__ == "__main__":

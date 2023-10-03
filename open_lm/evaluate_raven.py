@@ -575,7 +575,7 @@ def main(args):
 
 
     # Define the directory containing the numpy arrays
-    directory_path = "/fsx/iejmac/code/open_lm/open_lm/eval_set/small/*.npy"
+    directory_path = "/fsx/iejmac/code/open_lm/open_lm/eval_set/alt_small/*.npy"
 
     # Function to preprocess each numpy array
     def prep(tensor):
@@ -628,15 +628,17 @@ def main(args):
             losses = torch.tensor(losses)
             cl += losses[-1].item()
             icl += losses[:-1].mean().item()
+            # icl += losses[0].mean().item()
             
-            # losses = losses.softmax(dim=0)
-            # correct = (losses.argmax() == 7)
-            # cor += correct
+            losses = losses.softmax(dim=0)
+            print(torch.round(losses, decimals=3))
+            print(losses.argmin())
+            correct = (losses.argmin() == 7)
+            cor += correct.item()
             a += 1
-            # print(cor/a)
-            print(cl/a, icl/a)
+            print(cl/a, icl/a, icl/a - cl/a, cor/a)
 
-            if a > 100:
+            if a > 200:
                 break
 
 
