@@ -5,8 +5,11 @@ from open_lm.model import Params, Transformer
 import torch
 from typing import Union, Tuple, Optional, List
 
-def create_model(cfg):
+from open_lm.norms import get_norm_class, LayerNorm
+from functools import partial
 
+
+def create_model(cfg):
     model_args = Params(
         dim=cfg.hidden_dim,
         n_layers=cfg.n_layers,
@@ -15,6 +18,12 @@ def create_model(cfg):
         vocab_size=cfg.vocab_size,
         post_embed_norm=cfg.post_embed_norm,
         weight_tying=cfg.weight_tying,
+        # norm_type=get_norm_class(cfg),
+        # apply_qk_norm=cfg.qk_norm,
+        norm_type=partial(LayerNorm, elementwise_gain=True, elementwise_bias=False), # NOTE HACK
+        apply_qk_norm=True, #NOTE HACK
+        # rotary_old=cfg.rotary_old
+        rotary_old=False,
     )
     model = Transformer(model_args)
 
@@ -51,7 +60,8 @@ class OpenLMforCausalLM(OpenLMModel):
         self.model.tok_embeddings = value
 
     def get_output_embeddings(self):
-        return self.model.get_output_embeddings()
+        # return self.model.get_output_embeddings()
+        return self.lm_head
 
     def set_output_embeddings(self, new_embeddings):
         raise NotImplementedError
@@ -95,9 +105,11 @@ class OpenLMforCausalLM(OpenLMModel):
         ```"""
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         logits, _ = self.model(input_ids)
+
         output = CausalLMOutputWithPast(
             logits=logits
         )
+
         return output
 
     def prepare_inputs_for_generation(

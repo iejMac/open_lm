@@ -43,20 +43,23 @@ def count_samples(shard_path):
 '''
 
 def count_samples(shard_path):
-    # Check if the shard_path is a CloudPath
-    if isinstance(shard_path, CloudPath):
-        # Create a temporary file
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_file_path = Path(temp_file.name)
-            # Download the shard from S3 to the temporary file
-            shard_path.download_to(temp_file_path)
-            # Run the tar command on the local temporary file
-            count = int(subprocess.check_output(f"tar tf {temp_file_path} | wc -l", shell=True))
-            # Remove the temporary file
-            temp_file_path.unlink()
-    else:
-        # If shard_path is not a CloudPath, run the tar command directly on it
-        count = int(subprocess.check_output(f"tar tf {shard_path} | wc -l", shell=True))
+    try:
+        # Check if the shard_path is a CloudPath
+        if isinstance(shard_path, CloudPath):
+            # Create a temporary file
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                temp_file_path = Path(temp_file.name)
+                # Download the shard from S3 to the temporary file
+                shard_path.download_to(temp_file_path)
+                # Run the tar command on the local temporary file
+                count = int(subprocess.check_output(f"tar tf {temp_file_path} | wc -l", shell=True))
+                # Remove the temporary file
+                temp_file_path.unlink()
+        else:
+            # If shard_path is not a CloudPath, run the tar command directly on it
+            count = int(subprocess.check_output(f"tar tf {shard_path} | wc -l", shell=True))
+    except Exception as e:
+        count = 0
     return count
 
 def worker_fn(input_data):

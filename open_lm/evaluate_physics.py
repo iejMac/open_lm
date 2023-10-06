@@ -583,7 +583,7 @@ def main(args):
         appended_tensor = tensor
 
         # Append 1024 to each row and add to the batch list
-        to_append = torch.full((15, 1), 1024)
+        to_append = torch.full((tensor.shape[0], 1), 1024)
         batch_tensor = torch.cat((appended_tensor, to_append), dim=1)
 
         return batch_tensor
@@ -596,16 +596,19 @@ def main(args):
         "/fsx/iejmac/code/open_lm/datapreprocess/physical_concepts/unchangeableness/tokens/00000_clip_embeddings.tar",
     ]
 
-    a, l = 0, 0
-    a_possible, l_possible = 0, 0
-    a_impossible, l_impossible = 0, 0
-
     autocast = get_autocast(args.precision)
 
     results = {}
 
     for tar_path in tar_files:
         # Open tar file for reading
+        # Create a dictionary to store pairs of possible and impossible samples for each ID
+        sample_pairs = {}
+        a, l = 0, 0
+        cor = 0
+        a_possible, l_possible = 0, 0
+        a_impossible, l_impossible = 0, 0
+
         with tarfile.open(tar_path, 'r') as tar:
 
             # Extract all the numpy files from the tar into a temporary directory
@@ -613,6 +616,63 @@ def main(args):
             os.makedirs(temp_dir, exist_ok=True)
             tar.extractall(path=temp_dir)
 
+            # Group samples by their IDs
+            for npy_file in glob.glob(os.path.join(temp_dir, "*.npy")):
+                # Extract the ID from the filename
+                match = re.match(r'(\d+)_?(possible|impossible)?.npy', os.path.basename(npy_file))
+                if match:
+                    sample_id, sample_type = match.groups()
+                    if sample_id not in sample_pairs:
+                        sample_pairs[sample_id] = {}
+                    sample_pairs[sample_id][sample_type] = npy_file
+
+            for sample_id, samples in tqdm(sample_pairs.items()):
+                # Ensure both 'possible' and 'impossible' samples exist for this ID
+                if 'possible' in samples and 'impossible' in samples:
+                    # Load the 'possible' and 'impossible' tensors
+                    tensor_possible = torch.from_numpy(np.load(samples['possible'])).long()
+                    tensor_impossible = torch.from_numpy(np.load(samples['impossible'])).long()
+
+
+                    eq = torch.sum((tensor_possible == tensor_impossible), dim=-1) == tensor_possible.shape[-1]
+                    if eq[0]:
+                        change_idx = (eq[:-1] & ~eq[1:]).nonzero(as_tuple=True)[0][0].item() + 1
+                    else:
+                        change_idx = 0
+
+                    tensor_possible = tensor_possible[change_idx:]
+                    tensor_impossible = tensor_impossible[change_idx:]
+
+                    # Now, you can process tensor_possible and tensor_impossible, and compare the results as needed.
+
+                    losses = []
+                    surprises = []
+                    for tensor in [tensor_possible, tensor_impossible]:
+                        # Preprocess the tensor to create the batch
+                        batch = prep(tensor).to(args.device)
+                        batch = batch.reshape(1, -1)
+                        batch_x = batch[:, :-1]
+                        batch_y = batch[:, 1:].reshape(-1)
+
+                        with torch.no_grad(), autocast():
+                            out, _ = model(batch_x)
+                            loss_value = loss(out.reshape(-1, args.vocab_size), batch_y)
+
+                            loss_value = loss_value[256 + 257:] # dump first two frame losses
+                            frame_losses = loss_value.reshape(-1, 257).mean(dim=-1)
+
+                            surprise = frame_losses.max()
+
+                        surprises.append(surprise.item())
+                        losses.append(loss_value.mean().item())
+
+                    cor += (surprises[0] < surprises[1])
+                    l_possible += surprises[0]
+                    l_impossible += surprises[1]
+                    l += (losses[0] + losses[1])/2
+                    a += 1
+
+            '''
             # Loop over the extracted numpy files
             for npy_file in tqdm(glob.glob(os.path.join(temp_dir, "*.npy"))):
                 # Determine if this is a "possible" or "impossible" sample based on filename
@@ -645,16 +705,20 @@ def main(args):
 
                     l += loss_value.mean().item()
                     a += 1
+            '''
 
             # Clean up the temporary directory
             shutil.rmtree(temp_dir)
 
+        print(l, l_possible, l_impossible, cor, a)
+
         temp_results = {
                 "Average loss": l/a,
-                "Average possible surprise": l_possible/a_possible,
-                "Average impossible surprise": l_impossible/a_impossible,
-                "Diff": l_impossible/a_impossible - l_possible/a_possible,
-                "Normalized Diff": (l_impossible/a_impossible - l_possible/a_possible)/(l/a),
+                "Average possible surprise": l_possible/a,
+                "Average impossible surprise": l_impossible/a,
+                "Diff": l_impossible/a - l_possible/a,
+                "Normalized Diff": (l_impossible/a- l_possible/a)/(l/a),
+                "Possibility Accuracy": cor/a,
         }
 
         results[tar_path] = temp_results
@@ -664,7 +728,8 @@ def main(args):
     results["model"] = args.model
 
     if is_master(args):
-        with open(os.path.join(checkpoint_root, "physics_results.jsonl"), "a+") as f:
+        # with open(os.path.join(checkpoint_root, "physics_results.jsonl"), "a+") as f:
+        with open(os.path.join("physics_results.jsonl"), "a+") as f:
             f.write(json.dumps(results, indent=4))
             f.write("\n")
 
