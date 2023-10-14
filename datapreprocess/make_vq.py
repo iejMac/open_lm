@@ -268,6 +268,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    chunk_size = args.n_frames * (args.tokens_per_frame + 1) + 1
+    chunk_size = args.n_frames * (args.tokens_per_frame + 1)
 
     main(args.input_files, args.output_dir, args.num_workers, args.num_consumers, args.upload_to_s3, args.s3_path, chunk_size, args.vocab_size)
