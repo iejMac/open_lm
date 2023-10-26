@@ -1,7 +1,7 @@
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutputWithPast
-from open_lm.utils.transformers.config import OpenLMConfig
-from open_lm.model import Params, Transformer
+from open_lm.utils.transformers.hf_config import OpenLMConfig
+from open_lm.model import Transformer
 import torch
 from typing import Union, Tuple, Optional, List
 
@@ -35,8 +35,7 @@ class OpenLMModel(PreTrainedModel):
 
     def __init__(self, config):
         super().__init__(config)
-        print(config)
-        self.model = create_model(config)
+        self.model = Transformer(config)
 
     def forward(self, tokens):
         return self.model(tokens)
@@ -47,8 +46,7 @@ class OpenLMforCausalLM(OpenLMModel):
 
     def __init__(self, config):
         super().__init__(config)
-        #self.model = OpenLMModel(config)
-        self.model = create_model(config)
+        self.model = Transformer(config)
         self.lm_head = None        
         # Initialize weights and apply final processing
         self.post_init()

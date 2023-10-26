@@ -26,7 +26,6 @@ from torch.distributed.fsdp import (
     FullStateDictConfig,
     StateDictType,
     CPUOffload,
-    ShardingStrategy,
 )
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 
@@ -134,7 +133,9 @@ def load_optimizer(args, model, optimizer, scaler):
         if optimizer is not None:
             osd = checkpoint["optimizer"]
             if args.fsdp:
-                osd = FSDP.optim_state_dict_to_load(osd, model, optimizer)
+                osd = FSDP.optim_state_dict_to_load(
+                    model=model, optim=optimizer, optim_state_dict=osd
+                )
             optimizer.load_state_dict(osd)
             logging.info(f"=> resuming optimizer")
         if scaler is not None and "scaler" in checkpoint:
@@ -209,7 +210,12 @@ def main(args):
     # get the name of the experiments
     if args.name is None:
         # sanitize model name for filesystem / uri use, easier if we don't use / in name as a rule?
-        model_name_safe = args.model.replace("/", "-")
+        model_name_safe = None
+        if Path(args.model).is_file():
+            model_name_safe = Path(args.model).stem.replace("/", "-")
+        else:
+            model_name_safe = args.model.replace("/", "-")
+
         date_str = datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
         if args.distributed:
             # sync date_str from master to all ranks
@@ -416,6 +422,13 @@ def main(args):
                     reduce_dtype=torch.float32,
                     buffer_dtype=torch.bfloat16,
                 )
+            elif args.fsdp_pure_bf16:
+                print("=> using pure bfloat16 params as part of fsdp amp policy.")
+                mp_policy = MixedPrecision(
+                    param_dtype=torch.bfloat16,
+                    reduce_dtype=torch.bfloat16,
+                    buffer_dtype=torch.bfloat16,
+                )
 
             if args.rank == 0:
                 print(
@@ -424,7 +437,9 @@ def main(args):
                 print(f"Before FSDP {torch.cuda.memory_allocated()/1024**3:.3} GB")
 
             fsdp_kwargs = {}
-            assert not (args.fsdp_hybrid and args.fsdp_hybrid_o2), "Only --fsdp-hybrid or --fsdp-hybrid-o2 should be set."
+            assert not (
+                args.fsdp_hybrid and args.fsdp_hybrid_o2
+            ), "Only --fsdp-hybrid or --fsdp-hybrid-o2 should be set."
             if args.fsdp_backward_prefetch:
                 fsdp_kwargs["backward_prefetch"] = BackwardPrefetch.BACKWARD_PRE
             if args.fsdp_hybrid:
@@ -588,22 +603,22 @@ def main(args):
                 del data["train"]
             args.train_data = train_data_string_per_source
             data["train"] = get_wds_dataset(
-                args, True, epoch, force_num_samples=num_samples_per_source, data_key=args.data_key,
+                args, True, epoch=epoch, force_num_samples=num_samples_per_source, data_key=args.data_key,
             )
         if args.distributed:
             dist.barrier()
 
         success = train_one_epoch(
-                model,
-                data,
-                loss,
-                epoch,
-                optimizer,
-                scaler,
-                scheduler,
-                args,
-                tb_writer=writer,
-            )
+            model,
+            data,
+            loss,
+            epoch,
+            optimizer,
+            scaler,
+            scheduler,
+            args,
+            tb_writer=writer,
+        )
 
         if args.distributed:
             dist.barrier()
