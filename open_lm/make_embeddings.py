@@ -554,6 +554,8 @@ def main(args):
 
             out, embs = model(sample)
 
+            print(embs.shape)
+
             emb = embs.mean(dim=-2).cpu()
             embeddings.append(emb)
             labels.append(label)

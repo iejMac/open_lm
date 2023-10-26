@@ -62,17 +62,24 @@ def process_files(file_list, buffer, buffer_lock, chunk_size, vocab_size):
                 with tarfile.open(fileobj=tar_bytes) as tar:
                     tar.extractall(tempdir)
 
-                nps = glob.glob(os.path.join(tempdir, "*.npy")) 
+                nps = sorted(glob.glob(os.path.join(tempdir, "*.npy")))
+
                 total_tokens = []
                 for np_arr in nps:
                     vid = np.load(np_arr)
                     # Append EOF token
                     vid = np.hstack([vid, np.full((vid.shape[0], 1), vocab_size)])
+
+                    vid[-1][-1] = vocab_size + 1 # EOD token
+
                     vid = vid.reshape(-1)
                     total_tokens.append(vid)
 
                 for tokens in total_tokens:
                     tokens = tokens.tolist()
+                    tokens = remaining_tokens + tokens
+                    remaining_tokens = []
+
                     for i in range(0, len(tokens), chunk_size):
                         chunk = tokens[i:i + chunk_size]
                         if len(chunk) < chunk_size:
@@ -268,6 +275,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    chunk_size = args.n_frames * (args.tokens_per_frame + 1)
+    chunk_size = args.n_frames * (args.tokens_per_frame + 1) + 1
 
     main(args.input_files, args.output_dir, args.num_workers, args.num_consumers, args.upload_to_s3, args.s3_path, chunk_size, args.vocab_size)

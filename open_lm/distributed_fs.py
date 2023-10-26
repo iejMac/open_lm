@@ -578,6 +578,7 @@ def main(args):
             cor = (pred == cls)
             cor_all.append(cor)
 
+            print(args.rank, sum(cor_all)/len(cor_all))
             if args.rank == 0:
                 print(len(cor_all))
 
