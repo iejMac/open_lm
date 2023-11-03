@@ -1,7 +1,7 @@
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from open_lm.utils.transformers.hf_config import OpenLMConfig
-from open_lm.model import Transformer
+from open_lm.model import Params, Transformer
 import torch
 from typing import Union, Tuple, Optional, List
 
@@ -18,12 +18,11 @@ def create_model(cfg):
         vocab_size=cfg.vocab_size,
         post_embed_norm=cfg.post_embed_norm,
         weight_tying=cfg.weight_tying,
+        ffn_type=cfg.ffn_type,
         # norm_type=get_norm_class(cfg),
         # apply_qk_norm=cfg.qk_norm,
         norm_type=partial(LayerNorm, elementwise_gain=True, elementwise_bias=False), # NOTE HACK
         apply_qk_norm=True, #NOTE HACK
-        # rotary_old=cfg.rotary_old
-        rotary_old=False,
     )
     model = Transformer(model_args)
 
@@ -35,7 +34,8 @@ class OpenLMModel(PreTrainedModel):
 
     def __init__(self, config):
         super().__init__(config)
-        self.model = Transformer(config)
+        print(config)
+        self.model = create_model(config)
 
     def forward(self, tokens):
         return self.model(tokens)
@@ -46,7 +46,8 @@ class OpenLMforCausalLM(OpenLMModel):
 
     def __init__(self, config):
         super().__init__(config)
-        self.model = Transformer(config)
+        #self.model = OpenLMModel(config)
+        self.model = create_model(config)
         self.lm_head = None        
         # Initialize weights and apply final processing
         self.post_init()

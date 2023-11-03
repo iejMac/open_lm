@@ -553,11 +553,9 @@ def main(args):
             sample = sample.reshape(1, -1)
 
             out, embs = model(sample)
+            emb = embs.mean(dim=-2)
 
-            print(embs.shape)
-
-            emb = embs.mean(dim=-2).cpu()
-            embeddings.append(emb)
+            embeddings.append(emb.cpu())
             labels.append(label)
 
             if len(labels) == N_EXAMPLES_WORKER:

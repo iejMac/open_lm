@@ -7,13 +7,13 @@ import numpy as np
 import torch.distributed as dist
 from precision import get_autocast
 
-from open_lm.utils.transformers.model import OpenLMforCausalLM
+from open_lm.utils.transformers.hf_model import OpenLMforCausalLM
 
 
 # TOKENS_PER_FRAME, VOCAB_SIZE, N_CTX_FRAMES = 256, 1024, 16
-TOKENS_PER_FRAME, VOCAB_SIZE, N_CTX_FRAMES = 256, 1024, 4
-# TOKENS_PER_FRAME, VOCAB_SIZE, N_CTX_FRAMES = 1024, 8192, 4
-MAX_VIDS=64
+TOKENS_PER_FRAME, VOCAB_SIZE, N_CTX_FRAMES = 256, 16384, 16
+# TOKENS_PER_FRAME, VOCAB_SIZE, N_CTX_FRAMES = 1024, 8192, 8
+MAX_VIDS=128
 
 
 def main(rank, world_size, args):
@@ -49,13 +49,34 @@ def main(rank, world_size, args):
         frames = []
 
         with torch.no_grad(), autocast():
-            for f in range(n_gen_frames):
-                greedy_output = model.generate(input_ids, max_length=n_ctx_tokens, do_sample=True, temperature=1.5, top_p=0.95)
+            f = 0
+            while f < n_gen_frames:
+                greedy_output = model.generate(input_ids, max_length=n_ctx_tokens, do_sample=True, temperature=1.0, top_p=0.95)
+
                 out_np = greedy_output.cpu().numpy()
                 out_np[:, -1] = VOCAB_SIZE # Ensure delimiters are correct
 
-                frames.append(out_np[:, -(TOKENS_PER_FRAME+1):])
+                last_input_frame = out_np[:, -2*(TOKENS_PER_FRAME+1):-(TOKENS_PER_FRAME+1)]
+                genned_frame = out_np[:, -(TOKENS_PER_FRAME+1):]
+
+                overlap = (genned_frame[:, :-1] == last_input_frame[:, :-1]).sum(axis=-1)[0] / TOKENS_PER_FRAME
+
+                '''
+                if overlap < 0.01 or overlap > 0.5:
+                    print(f"Overlap {overlap}, retrying...")
+                    # TODO: make this optionsl
+                    # TODO: add retry counter. If > 3 go to next vid
+                    # can do this by setting a retry count at the start of each gen
+                    # iterating here
+                    # resetting to 0 if passes
+                    # breaking if exceeds threshold
+                    # continue in outer loop of retry_count == threshold
+                    continue  # try again, either no motion or cut
+                '''
+
+                frames.append(genned_frame)
                 input_ids = greedy_output[:, TOKENS_PER_FRAME+1:]
+                f += 1
 
         out_vid = np.concatenate([vid.reshape(-1, TOKENS_PER_FRAME+1)] + frames)
 

@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --partition=g40
+#SBATCH --partition=g80
 #SBATCH --job-name=vq_gpt
-#SBATCH --nodes 32
+#SBATCH --nodes 64
 #SBATCH --exclude ip-26-0-159-213,ip-26-0-158-116
 #SBATCH --ntasks-per-node=8
 #SBATCH --cpus-per-task=12
@@ -35,12 +35,12 @@ cd /fsx/iejmac/code/open_lm
 LR=0.003
 
 # TOKENS=180000000000
-TOKENS=66000000000
+# TOKENS=66000000000
 # TOKENS=10000000000
-SAVES=1
+# SAVES=1
 
-# TOKENS=60000000000
-# SAVES=3
+TOKENS=33000000000
+SAVES=2
 
 BATCHSIZE=2 # (total BS should be 4M)
 
@@ -61,8 +61,9 @@ EXP_NAME="vq_gpt-$MODEL-$LR-$WD-$TOTAL_TOKENS-$WARM-$VARIANT"
 
 echo "node-list: $SLURM_JOB_NODELIST"
 
+#     --train-data "pipe:aws s3 cp s3://stability-west/laion_coyo_vqgan_tokenized_open_lm2/tars-8200/shard-{0000000..0000482}.tar -"  "pipe:aws s3 cp s3://stability-west/stable-video-dataset-tokenized/open_lm_test2/tars-8200/shard-{0000000..0001723}.tar -" \
 srun --cpu_bind=v --accel-bind=gn python3 -m open_lm.main \
-    --train-data "pipe:aws s3 cp s3://stability-west/laion_coyo_vqgan_tokenized_open_lm2/tars-8200/shard-{0000000..0000482}.tar -"  "pipe:aws s3 cp s3://stability-west/stable-video-dataset-tokenized/open_lm_test2/tars-8200/shard-{0000000..0001723}.tar -" \
+    --dataset-metadata "s3://stability-west/laion_coyo_vqgan_tokenized_open_lm2/tars-8200/manifest.jsonl" "s3://stability-west/stable-video-dataset-tokenized/open_lm_test2/tars-8200/manifest.jsonl" \
     --train-data-mix-weights $IM_W $VID_W \
     --workers 2 \
     --train-num-samples $TOKENS \

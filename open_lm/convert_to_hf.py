@@ -1,10 +1,8 @@
 import argparse
-from utils.transformers.model import OpenLMModel
+from utils.transformers.hf_model import OpenLMModel
 from transformers import GPTNeoXTokenizerFast
-from utils.transformers.config import OpenLMConfig
-from torch.nn import LayerNorm
+from utils.transformers.hf_config import OpenLMConfig
 import torch
-from functools import partial
 import json
 
 if __name__ == '__main__':
@@ -16,9 +14,7 @@ if __name__ == '__main__':
     checkpoint = torch.load(args.checkpoint)
     with open(args.model_config, 'r') as f:
         config = json.load(f)
-
     openlm_config = OpenLMConfig(**config)
-
     open_lm = OpenLMModel(openlm_config)
     # hardcoded to NeoX Tokenizer
     tokenizer = GPTNeoXTokenizerFast.from_pretrained("EleutherAI/gpt-neox-20b")

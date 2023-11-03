@@ -97,6 +97,7 @@ def train_one_epoch(
 
         (texts,) = batch
         texts = torch.LongTensor(texts).to(device)
+
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
 
@@ -248,7 +249,7 @@ def evaluate(model, data, start_epoch, args, writer):
     for i, batch in enumerate(dataloader):
         (texts,) = batch
         texts = torch.LongTensor(texts).to(device)
-
+        
         data_time_m.update(time.time() - end)
 
         with autocast():
