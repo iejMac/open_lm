@@ -4,7 +4,6 @@ import logging
 import math
 import os
 import time
-from contextlib import nullcontext
 
 import numpy as np
 import torch
@@ -17,8 +16,8 @@ try:
 except ImportError:
     wandb = None
 
-from open_lm.distributed import is_master
-from open_lm.precision import get_autocast
+from .distributed import is_master
+from .precision import get_autocast
 
 
 class AverageMeter(object):
@@ -54,46 +53,16 @@ def backward(total_loss, scaler):
         total_loss.backward()
 
 
-def replace_before_tok(tensor, tok, excusive=False):
-    # NOTE: this implementation supports 0 or 1 instance of tok in a sequence.
-    #       if more than one instance appears, the last instace of tok is used.
-    #       if exclusive=True every instance of tok will be present in the output
-
-    tok_positions = tensor == tok
-
-    # construct cumulative mask for positions before (last) tok (if it appears)
-    cumsum_mask = tok_positions.flip(dims=[-1]).cumsum(dim=-1).flip(dims=[-1])
-
-    # create mask for positions before (last) tok in each row (batch)
-    tok_mask = cumsum_mask > 0
-
-    if excusive:
-        # retain tok in the output
-        tok_mask &= ~tok_positions
-
-    # replace elements to be masked with with -100 (pytorch default xent ignore value)
-    out = torch.clone(tensor)
-    out[tok_mask] = -100
-
-    return out
-
-
-def sample_chunk(chunk, seq_len, target_mask_left_tok):
+def sample_chunk(chunk, seq_len):
     if chunk.shape[1] == seq_len + 1:
         start_idx = 0
     elif chunk.shape[1] > seq_len + 1:
         start_idx = torch.randint(0, chunk.shape[1] - seq_len + 1, (1,)).item()
     else:
-        raise Exception(
-            f"Invalid sequence length: Sequence length {seq_len} > {chunk.shape[1]} Chunk size"
-        )
+        raise Exception(f"Invalid sequence length: Sequence length {seq_len} > {chunk.shape[1]} Chunk size")
 
-    inputs = chunk[:, start_idx : start_idx + seq_len - 1]
-    targets = chunk[:, start_idx + 1 : start_idx + seq_len]
-
-    if target_mask_left_tok is not None:
-        return inputs, replace_before_tok(targets, target_mask_left_tok)
-
+    inputs = chunk[:, start_idx:start_idx+seq_len-1]
+    targets = chunk[:, start_idx+1:start_idx+seq_len]
     return inputs, targets
 
 
@@ -133,14 +102,13 @@ def train_one_epoch(
 
         (texts,) = batch
         texts = torch.LongTensor(texts).to(device)
+
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
 
         if args.accum_freq == 1:
             with autocast():
-                inputs, targets = sample_chunk(
-                    texts, args.seq_len, args.target_mask_left
-                )
+                inputs, targets = sample_chunk(texts, args.seq_len)
                 out, _ = model(inputs)
 
                 if args.log_logit_mean:
@@ -157,32 +125,24 @@ def train_one_epoch(
             ), "Batch size must be divisible by accum_freq"
             per_batch = args.batch_size // args.accum_freq
 
-            inputs, targets = sample_chunk(texts, args.seq_len, args.target_mask_left)
+            inputs, targets = sample_chunk(texts, args.seq_len)
 
             for ii in range(args.accum_freq):
-                maybe_no_sync = nullcontext
-                # Don't sync gradients until the final batch for FSDP.
-                if isinstance(model, FSDP) and ii != args.accum_freq - 1:
-                    maybe_no_sync = model.no_sync
-                with maybe_no_sync():
-                    with autocast():
-                        inputs_ii = inputs[ii * per_batch : (ii + 1) * per_batch]
-                        if inputs_ii.shape[0] == 0:
-                            break
-                        targets_ii = targets[ii * per_batch : (ii + 1) * per_batch]
-                        out, _ = model(inputs_ii)
+                with autocast():
+                    inputs_ii = inputs[ii * per_batch : (ii + 1) * per_batch]
+                    if inputs_ii.shape[0] == 0:
+                        break
+                    targets_ii = targets[ii * per_batch : (ii + 1) * per_batch]
+                    out, _ = model(inputs_ii)
 
-                        if args.log_logit_mean:
-                            logit_m.update(torch.mean(out).item())
+                    if args.log_logit_mean:
+                        logit_m.update(torch.mean(out).item())
 
-                        local_loss = (
-                            loss(
-                                out.reshape(-1, args.vocab_size), targets_ii.reshape(-1)
-                            )
-                            * inputs_ii.shape[0]
-                            / inputs.shape[0]
-                        )
-                    backward(local_loss, scaler)
+                    local_loss = (
+                        loss(out.reshape(-1, args.vocab_size), targets_ii.reshape(-1))
+                        * inputs_ii.shape[0] / inputs.shape[0]
+                    )
+                backward(local_loss, scaler)
                 if ii == 0:
                     total_loss = local_loss
                 else:
@@ -267,7 +227,6 @@ def train_one_epoch(
     # end for
     return True
 
-
 @torch.inference_mode()
 def evaluate(model, data, start_epoch, args, writer):
     """
@@ -295,11 +254,11 @@ def evaluate(model, data, start_epoch, args, writer):
     for i, batch in enumerate(dataloader):
         (texts,) = batch
         texts = torch.LongTensor(texts).to(device)
-
+        
         data_time_m.update(time.time() - end)
 
         with autocast():
-            inputs, targets = sample_chunk(texts, args.seq_len, args.target_mask_left)
+            inputs, targets = sample_chunk(texts, args.seq_len)
 
             out, _ = model(inputs)
             total_loss = loss(out.reshape(-1, args.vocab_size), targets.reshape(-1))
@@ -311,11 +270,12 @@ def evaluate(model, data, start_epoch, args, writer):
     # Save eval loss / etc.
     log_data = {
         "loss": losses_m.avg,
+        "perplexity": math.exp(losses_m.avg),
         "data_time": data_time_m.avg,
         "batch_time": batch_time_m.avg,
         "samples_per_second": sps_m.avg,
         "samples_per_second_per_gpu": spspg_m.avg,
-        "tokens": start_epoch * args.train_num_samples * args.seq_len,
+        "tokens": start_epoch * args.val_num_samples * args.seq_len,
     }
 
     for name, val in log_data.items():

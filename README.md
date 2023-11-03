@@ -114,7 +114,7 @@ This will create a file called ```manifest.jsonl``` under ```/preproc_data```. T
 >>> export CUDA_VISIBLE_DEVICES=0,1,2,3
 >>> torchrun --nproc-per-node 4 -m open_lm.main   \
  --model open_lm_3b \
- --dataset-manifest /preproc_data/manifest.jsonl \
+ --dataset-metadata /preproc_data/manifest.jsonl \
  --train-num-samples 1000000000 \
  --workers 8 \
  --precision amp_bfloat16 \
@@ -259,7 +259,7 @@ pytest tests/
 
 # Team and acknowledgements
 
-Team (so-far, * = equal contrib): Suchin Gururangan*, Mitchell Wortsman*, Samir Yitzhak Gadre*, Achal Dave*, Maciej Kilian, Weijia Shi, Jean Mercat, Georgios Smyrnis, Gabriel Ilharco, Matt Jordan, Reinhard Heckel, Alex Dimakis, Ali Farhadi, Vaishaal Shankar*, Ludwig Schmidt.
+Team (so-far, * = equal contrib): Suchin Gururangan*, Mitchell Wortsman*, Samir Yitzhak Gadre, Achal Dave, Maciej Kilian, Weijia Shi, Jean Mercat, Georgios Smyrnis, Gabriel Ilharco, Matt Jordan, Reinhard Heckel, Alex Dimakis, Ali Farhadi, Vaishaal Shankar, Ludwig Schmidt.
 
 Code is based heavily on [open-clip](https://github.com/mlfoundations/open_clip) developed by a team including Ross Wightman, Romain Beaumont, Cade Gordon, Mehdi Cherti, Jenia Jitsev, and [open-flamingo](https://github.com/mlfoundations/open_flamingo), developed by a team including Anas Awadalla and Irena Gao. Additional inspiration is from [lit-llama](https://github.com/Lightning-AI/lit-llama).
 We are greatful to stability.ai for resource support.
