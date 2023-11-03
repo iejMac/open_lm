@@ -1,0 +1,10 @@
+{
+    "hidden_dim": 1024,
+    "n_layers": 24,
+    "n_heads": 16,
+    "seq_len": 8200,
+    "vocab_size": 8256,
+    "ffn_type": "gelu",
+    "post_embed_norm": false,
+    "weight_tying": false
+}
