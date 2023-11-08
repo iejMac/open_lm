@@ -29,6 +29,7 @@ from torch.distributed.fsdp import (
 )
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 
+from .data import proc_token
 from .model import Block
 from .losses import CrossEntropyLossWithZLoss
 
@@ -144,7 +145,27 @@ def load_optimizer(args, model, optimizer, scaler):
         logging.info(f"=> WARNING: not resuming optimizer.")
 
 
-def save_checkpoint(args, model, optimizer, scaler, completed_epoch, evaluation_loss):
+def load_data_chunks(args):
+    checkpoint = pt_load(args.resume, map_location="cpu")
+    if "next_chunk" in checkpoint and "samples_seen" in checkpoint:
+        return checkpoint["next_chunk"], checkpoint["samples_seen"]
+    else:
+        logging.info(
+            f"=> WARNING: tried to resume a checkpoint without data chunk info. Assuming next_chunk = 0."
+        )
+        return 0, 0
+
+
+def save_checkpoint(
+    args,
+    model,
+    optimizer,
+    scaler,
+    completed_epoch,
+    evaluation_loss,
+    next_chunk=None,
+    samples_seen=None,
+):
     cpu_state, optim_state = None, None
     if args.logs and args.logs.lower() != "none" and args.fsdp:
         save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
@@ -159,6 +180,12 @@ def save_checkpoint(args, model, optimizer, scaler, completed_epoch, evaluation_
             "state_dict": cpu_state if args.fsdp else model.state_dict(),
             "evaluation_loss": evaluation_loss,
         }
+        if next_chunk is not None:
+            checkpoint_dict_model["next_chunk"] = next_chunk
+
+        if samples_seen is not None:
+            checkpoint_dict_model["samples_seen"] = samples_seen
+
         checkpoint_dict_opt = {
             "epoch": completed_epoch,
             "name": args.name,
@@ -492,7 +519,7 @@ def main(args):
     optimizer = None
     scaler = None
 
-    if args.train_data or (args.dataset_metadata is not None):
+    if args.train_data or (args.dataset_manifest is not None):
         named_parameters = list(model.named_parameters())
         no_decay_params = []  # to be potentially used later
         params = [p for n, p in named_parameters if p.requires_grad]
@@ -523,8 +550,12 @@ def main(args):
         args,
         epoch=start_epoch,
         tokenizer=None,
-        skip_train=args.dataset_metadata is not None,
+        skip_train=args.dataset_manifest is not None,
     )
+
+    if args.target_mask_left is not None:
+        # tokens handled with same modulo in dataloading
+        args.target_mask_left = proc_token(args.target_mask_left, args.vocab_size)
 
     if args.torchcompile:
         logging.info("Compiling model...")
@@ -533,7 +564,7 @@ def main(args):
     # create scheduler if train
     scheduler = None
     if "train" in data and optimizer is not None:
-        if args.dataset_metadata is not None:
+        if args.dataset_manifest is not None:
             total_steps = (args.train_num_samples * args.epochs) // (
                 args.batch_size * args.world_size
             )
@@ -604,12 +635,21 @@ def main(args):
         if is_master(args):
             logging.info(f"Start epoch {epoch}")
 
-        if args.dataset_metadata is not None:
+        final_epoch = False
+        if args.dataset_manifest is not None:
             assert (
                 not args.dataset_resampled
-            ), "dataset_metadata and dataset_resampled are mutually exclusive"
-            train_data_string_per_source, num_samples_per_source = get_string_for_epoch(
-                args.train_num_samples, epoch, args.dataset_metadata, args.train_data_mix_weights
+            ), "dataset_manifest and dataset_resampled are mutually exclusive"
+            (
+                train_data_string_per_source,
+                num_samples_per_source,
+                next_chunk,
+            ) = get_string_for_epoch(
+                args.train_num_samples,
+                next_chunk,
+                args.dataset_manifest,
+                args.train_data_mix_weights,
+                args.workers * args.world_size,
             )
             print(f"=> epoch {epoch}, training on {train_data_string_per_source}")
             if data["train"] is not None:
@@ -696,6 +736,10 @@ def main(args):
             next_chunk=next_chunk if args.dataset_manifest is not None else None,
             samples_seen=samples_seen if args.dataset_manifest is not None else None,
         )
+
+        if final_epoch:
+            logging.info("Ending training due to data exhaustion.")
+            break
 
     if args.wandb and is_master(args):
         wandb.finish()
