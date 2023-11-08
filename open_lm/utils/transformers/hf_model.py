@@ -1,9 +1,32 @@
 from transformers import PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from open_lm.utils.transformers.hf_config import OpenLMConfig
-from open_lm.model import Transformer
+from open_lm.model import Params, Transformer
 import torch
 from typing import Union, Tuple, Optional, List
+
+from open_lm.norms import get_norm_class, LayerNorm
+from functools import partial
+
+
+def create_model(cfg):
+    model_args = Params(
+        dim=cfg.hidden_dim,
+        n_layers=cfg.n_layers,
+        n_heads=cfg.n_heads,
+        seq_len=cfg.seq_len,
+        vocab_size=cfg.vocab_size,
+        post_embed_norm=cfg.post_embed_norm,
+        weight_tying=cfg.weight_tying,
+        ffn_type=cfg.ffn_type,
+        # norm_type=get_norm_class(cfg),
+        # apply_qk_norm=cfg.qk_norm,
+        norm_type=partial(LayerNorm, elementwise_gain=True, elementwise_bias=False), # NOTE HACK
+        apply_qk_norm=True, #NOTE HACK
+    )
+    model = Transformer(model_args)
+
+    return model
 
 
 class OpenLMModel(PreTrainedModel):
@@ -11,7 +34,8 @@ class OpenLMModel(PreTrainedModel):
 
     def __init__(self, config):
         super().__init__(config)
-        self.model = Transformer(config)
+        print(config)
+        self.model = create_model(config)
 
     def forward(self, tokens):
         return self.model(tokens)
@@ -22,7 +46,8 @@ class OpenLMforCausalLM(OpenLMModel):
 
     def __init__(self, config):
         super().__init__(config)
-        self.model = Transformer(config)
+        #self.model = OpenLMModel(config)
+        self.model = create_model(config)
         self.lm_head = None        
         # Initialize weights and apply final processing
         self.post_init()
@@ -34,7 +59,8 @@ class OpenLMforCausalLM(OpenLMModel):
         self.model.tok_embeddings = value
 
     def get_output_embeddings(self):
-        return self.model.get_output_embeddings()
+        # return self.model.get_output_embeddings()
+        return self.lm_head
 
     def set_output_embeddings(self, new_embeddings):
         raise NotImplementedError
@@ -78,9 +104,11 @@ class OpenLMforCausalLM(OpenLMModel):
         ```"""
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         logits, _ = self.model(input_ids)
+
         output = CausalLMOutputWithPast(
             logits=logits
         )
+
         return output
 
     def prepare_inputs_for_generation(
