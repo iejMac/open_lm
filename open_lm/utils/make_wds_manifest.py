@@ -66,7 +66,7 @@ def worker_fn(input_data):
     basename, data_dir = input_data
     shard_path = data_dir / basename
     return (basename, {
-        "shard": basename.split("-")[1].split(".")[0],
+        "shard": basename.split(".")[0],
         "num_chunks": count_samples(shard_path),
     })
 
