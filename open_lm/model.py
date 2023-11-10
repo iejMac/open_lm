@@ -269,15 +269,21 @@ class Transformer(nn.Module, PyTorchModelHubMixin):
         x = self.tok_embeddings(input)
         x = self.post_embed_norm(x)
 
+        # layer_embeddings = []
+
         for layer in self.layers:
             if self.grad_checkpointing:
                 x = checkpoint(layer, x)
             else:
                 x = layer(x)
+            # layer_embeddings.append(x.cpu())
+
+        # layer_embeddings = torch.cat(layer_embeddings)
 
         x = self.norm(x)
         output = self.output(x)
         # follow llama in casting this to float.
+        # return output.float(), layer_embeddings
         return output.float(), x
 
     def get_input_embeddings(self):

@@ -37,6 +37,9 @@ from webdataset.mix import RandomMix
 
 
 def proc_token(x, vocab_size):
+    if x == 16384:
+        x = 1024
+
     if type(x) is int:
         return x % vocab_size
 
