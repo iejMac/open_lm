@@ -279,12 +279,12 @@ class Transformer(nn.Module, PyTorchModelHubMixin):
 
             # Start appending only for the last n layers
             if (n is not None) and (i >= self.n_layers - n):
-                layer_embeddings.append(x.detach().cpu())
+                layer_embeddings.append(x)
 
         x = self.norm(x)
         output = self.output(x)
 
-        embedding = x if n is None else torch.cat(layer_embeddings)
+        embedding = x if n is None else torch.stack(layer_embeddings, dim=1)
         # follow llama in casting this to float.
         return output.float(), embedding
 

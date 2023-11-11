@@ -787,7 +787,7 @@ def main(args):
             #  ]
             # TODO: TEMP TESTING
             if is_master(args):
-                with open(os.path.join(log_base_path, "results.jsonl"), "w") as f:
+                with open(os.path.join(log_base_path, f"results_epoch_{epoch}.jsonl"), "w") as f:
                     f.write(json.dumps(metrics))
                     f.write("\n")
 

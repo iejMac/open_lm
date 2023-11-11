@@ -498,6 +498,15 @@ def parse_args(args):
         help="If true, will end training early if the desired token count is reached. Requires --no-skip-tokens.",
     )
 
+    parser.add_argument(
+        "--lm-loss-weight",
+        type=float,
+        default=0.5,
+        help=(
+            "TEMP, FOR FINETUNE"
+        ),
+    )
+
     add_model_args(parser)
 
     args = parser.parse_args(args)

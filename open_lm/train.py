@@ -284,6 +284,9 @@ def finetune_one_epoch(
     sample_digits = math.ceil(math.log(dataloader.num_samples + 1, 10))
 
     losses_m = AverageMeter()
+    lm_loss_m = AverageMeter()
+    cls_loss_m = AverageMeter()
+
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
 
@@ -327,7 +330,8 @@ def finetune_one_epoch(
             lm_loss = lm_loss[not_pad_mask].mean()
 
             # total_loss = 0.0 * lm_loss + cls_loss
-            total_loss = 0.5 * lm_loss + 0.5 * cls_loss
+            # total_loss = 0.5 * lm_loss + 0.5 * cls_loss
+            total_loss = args.lm_loss_weight * lm_loss + (1.0 - args.lm_loss_weight) * cls_loss
 
         backward(total_loss, scaler)
 
@@ -364,13 +368,16 @@ def finetune_one_epoch(
             # torch.distributed.all_gather(gathered_loss, total_loss)
             # losses_m.update(sum(gathered_loss).item() / args.world_size, batch_size * args.world_size)
             losses_m.update(total_loss.item(), batch_size)
+            lm_loss_m.update(lm_loss.item(), batch_size)
+            cls_loss_m.update(cls_loss.item(), batch_size)
+
             samples_per_second = inputs.numel() * args.world_size / batch_time_m.val
             samples_per_second_per_gpu = inputs.numel() / batch_time_m.val
             logging.info(
                 f"Train Epoch: {epoch} [{num_samples:>{sample_digits}}/{samples_per_epoch} ({percent_complete:.0f}%)] "
                 f"Loss: {losses_m.avg:.3f} "
-                f"LM Loss: {lm_loss.item():.3f} "
-                f"Cls Loss: {cls_loss.item():.3f} "
+                f"LM Loss: {lm_loss_m.avg:.3f} "
+                f"Cls Loss: {cls_loss_m.avg:.3f} "
                 f"Data (t): {data_time_m.avg:.3f} "
                 f"Batch (t): {batch_time_m.avg:.3f}, {samples_per_second:#g}/s, {samples_per_second_per_gpu:#g}/s/gpu "
                 f"LR: {optimizer.param_groups[0]['lr']:5f} "
@@ -379,6 +386,8 @@ def finetune_one_epoch(
             # Save train loss / etc. Using non avg meter values as loggers have their own smoothing
             log_data = {
                 "loss": losses_m.val,
+                "lm_loss": lm_loss_m.val,
+                "cls_loss": cls_loss_m.val,
                 "data_time": data_time_m.val,
                 "batch_time": batch_time_m.val,
                 "samples_per_second": samples_per_second,
@@ -465,7 +474,8 @@ def evaluate_cls(model, data, start_epoch, args, writer):
             lm_loss = lm_loss[not_pad_mask].mean()
 
             # total_loss = 0.0 * lm_loss + cls_loss
-            total_loss = 0.5 * lm_loss + 0.5 * cls_loss
+            # total_loss = 0.5 * lm_loss + 0.5 * cls_loss
+            total_loss = args.lm_loss_weight * lm_loss + (1.0 - args.lm_loss_weight) * cls_loss
 
             losses_m.update(total_loss.item(), inputs.shape[0])
             lm_loss_m.update(lm_loss.item(), inputs.shape[0])
