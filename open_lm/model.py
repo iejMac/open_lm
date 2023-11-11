@@ -265,26 +265,28 @@ class Transformer(nn.Module, PyTorchModelHubMixin):
     def set_grad_checkpointing(self, enable=True):
         self.grad_checkpointing = enable
 
-    def forward(self, input):
+    def forward(self, input, n=None):
         x = self.tok_embeddings(input)
         x = self.post_embed_norm(x)
 
-        # layer_embeddings = []
+        layer_embeddings = [] if n is not None else None
 
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
             if self.grad_checkpointing:
                 x = checkpoint(layer, x)
             else:
                 x = layer(x)
-            # layer_embeddings.append(x.cpu())
 
-        # layer_embeddings = torch.cat(layer_embeddings)
+            # Start appending only for the last n layers
+            if (n is not None) and (i >= self.n_layers - n):
+                layer_embeddings.append(x.detach().cpu())
 
         x = self.norm(x)
         output = self.output(x)
+
+        embedding = x if n is None else torch.cat(layer_embeddings)
         # follow llama in casting this to float.
-        # return output.float(), layer_embeddings
-        return output.float(), x
+        return output.float(), embedding
 
     def get_input_embeddings(self):
         return self.tok_embeddings

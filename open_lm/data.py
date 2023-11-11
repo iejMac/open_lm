@@ -35,6 +35,10 @@ from webdataset.tariterators import (
 )
 from webdataset.mix import RandomMix
 
+import io
+import pickle
+import numpy.lib.format
+
 
 def proc_token(x, vocab_size):
     if x == 16384:
@@ -57,6 +61,35 @@ def preprocess_json(text, vocab_size):
     text = json.loads(text.decode())
     text = [proc_token(x, vocab_size) for x in text]
     return text
+
+def npy_loads(data):
+    stream = io.BytesIO(data)
+    return numpy.lib.format.read_array(stream)
+
+
+def preprocess_npy(text, vocab_size, seq_len):
+    tokens = npy_loads(text)
+    tokens = np.hstack([tokens, np.full((tokens.shape[0], 1), 1024)])
+    tokens = tokens.reshape(-1).tolist()
+
+    if len(tokens) < seq_len + 1:
+        tokens = tokens + [vocab_size - 1] * (seq_len - len(tokens) + 1)
+
+    # text = [proc_token(x, vocab_size) for x in text]
+    return tokens
+
+with open("/fsx/iejmac/vq-gpt/evaluation/linear_probing/class_dict.pkl", 'rb') as f:
+    k400_class_dict = pickle.load(f)
+
+def get_cls(text):
+    text = text.decode("utf-8")
+
+    if text.isdigit():
+        cls = int(text)
+    else:
+        cls = k400_class_dict[text]
+
+    return cls
 
 
 class SharedEpoch:
@@ -415,6 +448,18 @@ def get_wds_dataset(
                     ),
                     wds.to_tuple("json"),
                     wds.select(partial(filter_lt_seqlen, args.seq_len)),
+                    wds.batched(args.batch_size, partial=not is_train),
+                ]
+            )
+        elif data_key == "npy":
+            pipeline.extend(
+                [
+                    wds.map_dict(
+                        npy=partial(preprocess_npy, vocab_size=args.vocab_size, seq_len=args.seq_len),
+                        txt=get_cls,
+                    ),
+                    wds.to_tuple("npy", "txt"),
+                    # wds.select(partial(filter_lt_seqlen, args.seq_len)),
                     wds.batched(args.batch_size, partial=not is_train),
                 ]
             )

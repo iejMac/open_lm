@@ -49,7 +49,7 @@ from .distributed import is_master, init_distributed_device, broadcast_object
 from .logger import setup_logging
 from .params import parse_args
 from .scheduler import cosine_lr
-from .train import train_one_epoch, evaluate
+from .train import train_one_epoch, finetune_one_epoch, evaluate, evaluate_cls
 from .file_utils import (
     pt_load,
     check_exists,
@@ -371,6 +371,9 @@ def main(args):
     args.seq_len = model.seq_len
     if args.train_num_samples is not None:
         args.train_num_samples //= args.seq_len
+    if args.val_num_samples is not None:
+        args.val_num_samples //= args.seq_len
+
     model = model.to(device)
 
     random_seed(args.seed, args.rank)
@@ -443,6 +446,45 @@ def main(args):
             raise RuntimeError(
                 "Loaded a checkpoint which has already seen the desired number of tokens."
             )
+
+
+    # TODO: TEMP TESTING
+    from torch import nn
+    class ClsWrapper(nn.Module):
+        def __init__(self, model, n_classes):
+            super().__init__()
+            self.model = model
+
+            d_model = model.tok_embeddings.weight.data.shape[-1]
+            hidden_size = d_model * 4
+            output_dim = n_classes
+
+            self.cls_head = nn.Sequential(
+                nn.Linear(d_model, hidden_size, bias=False),
+                nn.GELU(),
+                nn.Linear(hidden_size, output_dim, bias=False),
+            )
+
+        @torch.jit.ignore
+        def set_grad_checkpointing(self, enable=True):
+            self.model.set_grad_checkpointing(enable)
+
+        def forward(self, x):
+            lm_out, emb = self.model(x)
+
+            pad_mask = (x == self.model.vocab_size - 1)[..., None]
+            masked_emb = emb * pad_mask
+            n_masks = pad_mask.sum(dim=1)
+            emb = masked_emb.sum(dim=-2) / n_masks
+
+            cls_out = self.cls_head(emb)
+
+            return lm_out, cls_out
+
+    model = ClsWrapper(model, 400)
+    # TODO: TEMP TESTING
+
+    model = model.to(device)
 
     if args.distributed:
         if args.fsdp:
@@ -613,7 +655,11 @@ def main(args):
     if "train" not in data:
         checkpoint_root = Path(args.resume).parent
 
-        metrics = evaluate(model, data, start_epoch, args, writer)
+        # TODO: TEMP TESTING
+        # metrics = evaluate(model, data, start_epoch, args, writer)
+        metrics = evaluate_cls(model, data, start_epoch, args, writer)
+        # TODO: TEMP TESTING
+
         metrics["checkpoint_path"] = args.resume
         metrics["val_data"] = args.val_data
         metrics["model"] = args.model
@@ -695,7 +741,20 @@ def main(args):
         if args.distributed:
             dist.barrier()
 
+        '''
         success = train_one_epoch(
+            model,
+            data,
+            loss,
+            epoch,
+            optimizer,
+            scaler,
+            scheduler,
+            args,
+            tb_writer=writer,
+        )
+        '''
+        success = finetune_one_epoch(
             model,
             data,
             loss,
@@ -720,9 +779,18 @@ def main(args):
         completed_epoch = epoch + 1
         evaluation_loss = -1
         if "val" in data:
-            evaluation_loss = evaluate(model, data, completed_epoch, args, writer)[
-                "loss"
-            ]
+            # TODO: TEMP TESTING
+            metrics = evaluate_cls(model, data, completed_epoch, args, writer)
+            evaluation_loss = metrics['loss']
+            # evaluation_loss = evaluate(model, data, completed_epoch, args, writer)[
+            #     "loss"
+            #  ]
+            # TODO: TEMP TESTING
+            if is_master(args):
+                with open(os.path.join(log_base_path, "results.jsonl"), "w") as f:
+                    f.write(json.dumps(metrics))
+                    f.write("\n")
+
 
         # 613 - 610 at halfway
         # Saving checkpoints.
