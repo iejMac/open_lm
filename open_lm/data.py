@@ -69,7 +69,9 @@ def npy_loads(data):
 
 def preprocess_npy(text, vocab_size, seq_len):
     tokens = npy_loads(text)
-    tokens = np.hstack([tokens, np.full((tokens.shape[0], 1), 1024)])
+    tokens = np.hstack([tokens, np.full((tokens.shape[0], 1), vocab_size-64)])
+    # tokens = np.hstack([tokens, np.full((tokens.shape[0], 1), 1024)])
+    # tokens = np.hstack([tokens, np.full((tokens.shape[0], 1), 16384)])
     tokens = tokens.reshape(-1).tolist()
 
     if len(tokens) < seq_len + 1:
