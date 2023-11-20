@@ -285,6 +285,17 @@ def evaluate(model, data, start_epoch, args, writer):
     )  # set epoch in process safe manner via sampler or shared_epoch
     dataloader = data["val"].dataloader
 
+    print("WARNING HACK PRESENT HACK PRESENT")
+    print("PREPENDING 1024 TO EACH SAMPLE")
+    print("WARNING HACK PRESENT HACK PRESENT")
+    print("PREPENDING 1024 TO EACH SAMPLE")
+    print("WARNING HACK PRESENT HACK PRESENT")
+    print("PREPENDING 1024 TO EACH SAMPLE")
+    print("WARNING HACK PRESENT HACK PRESENT")
+    print("PREPENDING 1024 TO EACH SAMPLE")
+    print("WARNING HACK PRESENT HACK PRESENT")
+    print("PREPENDING 1024 TO EACH SAMPLE")
+
     losses_m = AverageMeter()
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
@@ -295,6 +306,9 @@ def evaluate(model, data, start_epoch, args, writer):
     for i, batch in enumerate(dataloader):
         (texts,) = batch
         texts = torch.LongTensor(texts).to(device)
+
+        # TODO: TEMP HACK TMEP HACK
+        texts = torch.cat((torch.full((texts.size(0), 1), 1024, dtype=texts.dtype, device=texts.device), texts), dim=1)[:, :-1]
 
         data_time_m.update(time.time() - end)
 
